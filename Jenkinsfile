@@ -1,6 +1,7 @@
 // WINDOWS Jenkinsfile: every step uses `bat` (the original used `sh`).
-// Run this on a Jenkins agent that is a Windows machine with Node.js,
-// Docker Desktop and (optionally) Kubernetes enabled.
+// Run this on a Jenkins agent that is a Windows machine with Docker Desktop,
+// Java 11+, Maven and (optionally) Kubernetes enabled.
+// API tests are written in Karate (karate/ folder) and run with Maven.
 
 pipeline {
     agent any
@@ -10,7 +11,11 @@ pipeline {
         DOCKER_BIN     = 'C:\\Users\\Hasini\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin'
         // <<< END OF EDITABLE LINE >>>
 
-        PATH           = "${DOCKER_BIN};${env.PATH}"
+        // >>> EDIT THIS LINE if Maven is installed somewhere else <<<
+        MAVEN_BIN      = 'D:\\Maven\\apache-maven-3.9.16-bin\\apache-maven-3.9.16\\bin'
+        // <<< END OF EDITABLE LINE >>>
+
+        PATH           = "${DOCKER_BIN};${MAVEN_BIN};${env.PATH}"
 
         // Different names so this does not clash with your other project
         IMAGE_NAME     = 'student-mgmt-j9'
@@ -26,19 +31,6 @@ pipeline {
             }
         }
 
-        stage('Install') {
-            steps {
-                bat 'node --version'
-                bat 'npm install'
-            }
-        }
-
-        stage('Test') {
-            steps {
-                bat 'npm test'
-            }
-        }
-
         stage('Docker Build') {
             steps {
                 bat 'docker --version'
@@ -51,6 +43,24 @@ pipeline {
                 // Remove the old container if it exists (ignore errors)
                 bat "docker rm -f %CONTAINER_NAME% || exit /b 0"
                 bat "docker run -d --name %CONTAINER_NAME% -p %HOST_PORT%:3000 %IMAGE_NAME%:latest"
+            }
+        }
+
+        stage('Karate API Tests') {
+            steps {
+                // Give the container a few seconds to start
+                bat 'ping -n 8 127.0.0.1 >nul'
+                bat 'java -version'
+                bat 'mvn -v'
+                dir('karate') {
+                    bat "mvn test -DbaseUrl=http://localhost:%HOST_PORT%"
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'karate/target/surefire-reports/*.xml'
+                    archiveArtifacts artifacts: 'karate/target/karate-reports/**', allowEmptyArchive: true
+                }
             }
         }
 
